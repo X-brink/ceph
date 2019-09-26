@@ -7,7 +7,6 @@ import { BsModalRef } from 'ngx-bootstrap/modal';
 
 import { configureTestBed, i18nProviders } from '../../../../testing/unit-test-helper';
 import { SharedModule } from '../../../shared/shared.module';
-import { IscsiSettingComponent } from '../iscsi-setting/iscsi-setting.component';
 import { IscsiTargetImageSettingsModalComponent } from './iscsi-target-image-settings-modal.component';
 
 describe('IscsiTargetImageSettingsModalComponent', () => {
@@ -15,7 +14,7 @@ describe('IscsiTargetImageSettingsModalComponent', () => {
   let fixture: ComponentFixture<IscsiTargetImageSettingsModalComponent>;
 
   configureTestBed({
-    declarations: [IscsiTargetImageSettingsModalComponent, IscsiSettingComponent],
+    declarations: [IscsiTargetImageSettingsModalComponent],
     imports: [SharedModule, ReactiveFormsModule, HttpClientTestingModule, RouterTestingModule],
     providers: [BsModalRef, i18nProviders]
   });
@@ -33,27 +32,6 @@ describe('IscsiTargetImageSettingsModalComponent', () => {
       },
       'backstore:2': {
         baz: 3
-      }
-    };
-    component.disk_controls_limits = {
-      'backstore:1': {
-        foo: {
-          min: 1,
-          max: 512,
-          type: 'int'
-        },
-        bar: {
-          min: 1,
-          max: 512,
-          type: 'int'
-        }
-      },
-      'backstore:2': {
-        baz: {
-          min: 1,
-          max: 512,
-          type: 'int'
-        }
       }
     };
     component.backstores = ['backstore:1', 'backstore:2'];

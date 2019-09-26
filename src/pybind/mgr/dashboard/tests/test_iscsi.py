@@ -135,7 +135,7 @@ class IscsiTest(ControllerTestCase, CLICommandTestMixin):
         request['target_iqn'] = target_iqn
         self._task_post('/api/iscsi/target', request)
         self.assertStatus(201)
-        self._task_delete('/api/iscsi/target/{}'.format(request['target_iqn']))
+        self._delete('/api/iscsi/target/{}'.format(request['target_iqn']))
         self.assertStatus(204)
         self._get('/api/iscsi/target')
         self.assertStatus(200)
@@ -365,7 +365,7 @@ class IscsiTest(ControllerTestCase, CLICommandTestMixin):
     def _update_iscsi_target(self, create_request, update_request, response):
         self._task_post('/api/iscsi/target', create_request)
         self.assertStatus(201)
-        self._task_put('/api/iscsi/target/{}'.format(create_request['target_iqn']), update_request)
+        self._put('/api/iscsi/target/{}'.format(create_request['target_iqn']), update_request)
         self.assertStatus(200)
         self._get('/api/iscsi/target/{}'.format(update_request['new_target_iqn']))
         self.assertStatus(200)
@@ -407,11 +407,6 @@ iscsi_target_request = {
         }
     ],
     "acl_enabled": True,
-    "auth": {
-        "password": "",
-        "user": "",
-        "mutual_password": "",
-        "mutual_user": ""},
     "target_controls": {},
     "groups": [
         {
@@ -468,11 +463,6 @@ iscsi_target_response = {
         }
     ],
     "acl_enabled": True,
-    "auth": {
-        "password": "",
-        "user": "",
-        "mutual_password": "",
-        "mutual_user": ""},
     'groups': [
         {
             'group_id': 'mygroup',
@@ -509,7 +499,7 @@ class IscsiClientMock(object):
             "gateways": {},
             "targets": {},
             "updated": "",
-            "version": 11
+            "version": 9
         }
 
     @classmethod
@@ -571,14 +561,6 @@ class IscsiClientMock(object):
         self.config['targets'][target_iqn] = {
             "clients": {},
             "acl_enabled": True,
-            "auth": {
-                "username": "",
-                "password": "",
-                "password_encryption_enabled": False,
-                "mutual_username": "",
-                "mutual_password": "",
-                "mutual_password_encryption_enabled": False
-            },
             "controls": target_controls,
             "created": "2019/01/17 09:22:34",
             "disks": [],
@@ -707,15 +689,8 @@ class IscsiClientMock(object):
         self.config['discovery_auth']['mutual_username'] = mutual_user
         self.config['discovery_auth']['mutual_password'] = mutual_password
 
-    def update_targetacl(self, target_iqn, action):
+    def update_targetauth(self, target_iqn, action):
         self.config['targets'][target_iqn]['acl_enabled'] = (action == 'enable_acl')
-
-    def update_targetauth(self, target_iqn, user, password, mutual_user, mutual_password):
-        target_config = self.config['targets'][target_iqn]
-        target_config['auth']['username'] = user
-        target_config['auth']['password'] = password
-        target_config['auth']['mutual_username'] = mutual_user
-        target_config['auth']['mutual_password'] = mutual_password
 
     def get_targetinfo(self, target_iqn):
         # pylint: disable=unused-argument

@@ -57,7 +57,6 @@ describe('IscsiTargetListComponent', () => {
     summaryService['summaryData$'] = summaryService['summaryDataSource'].asObservable();
 
     spyOn(iscsiService, 'status').and.returnValue(of({ available: true }));
-    spyOn(iscsiService, 'version').and.returnValue(of({ ceph_iscsi_config_version: 11 }));
   });
 
   it('should create', () => {

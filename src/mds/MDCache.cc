@@ -1472,16 +1472,17 @@ CInode *MDCache::cow_inode(CInode *in, snapid_t last)
     auto ret = head_in->split_need_snapflush(oldin, in);
     if (ret.first) {
       oldin->client_snap_caps = in->client_snap_caps;
-      if (!oldin->client_snap_caps.empty()) {
-	for (int i = 0; i < num_cinode_locks; i++) {
-	  SimpleLock *lock = oldin->get_lock(cinode_lock_info[i].lock);
-	  ceph_assert(lock);
+      for (const auto &p : oldin->client_snap_caps) {
+	SimpleLock *lock = oldin->get_lock(p.first);
+	ceph_assert(lock);
+	for (const auto &q : p.second) {
 	  if (lock->get_state() != LOCK_SNAP_SYNC) {
 	    ceph_assert(lock->is_stable());
 	    lock->set_state(LOCK_SNAP_SYNC);  // gathering
 	    oldin->auth_pin(lock);
 	  }
 	  lock->get_wrlock(true);
+	  (void)q; /* unused */
 	}
       }
     }
@@ -1491,21 +1492,22 @@ CInode *MDCache::cow_inode(CInode *in, snapid_t last)
       in->item_open_file.remove_myself();
       in->item_caps.remove_myself();
 
-      if (!client_snap_caps.empty()) {
-	MDSContext::vec finished;
-	for (int i = 0; i < num_cinode_locks; i++) {
-	  SimpleLock *lock = in->get_lock(cinode_lock_info[i].lock);
-	  ceph_assert(lock);
-	  ceph_assert(lock->get_state() == LOCK_SNAP_SYNC); // gathering
+      MDSContext::vec finished;
+      for (const auto &p : client_snap_caps) {
+	SimpleLock *lock = in->get_lock(p.first);
+	ceph_assert(lock);
+	ceph_assert(lock->get_state() == LOCK_SNAP_SYNC); // gathering
+	for (const auto &q : p.second) {
 	  lock->put_wrlock();
-	  if (!lock->get_num_wrlocks()) {
-	    lock->set_state(LOCK_SYNC);
-	    lock->take_waiting(SimpleLock::WAIT_STABLE|SimpleLock::WAIT_RD, finished);
-	    in->auth_unpin(lock);
-	  }
+	  (void)q; /* unused */
 	}
-	mds->queue_waiters(finished);
+	if (!lock->get_num_wrlocks()) {
+	  lock->set_state(LOCK_SYNC);
+	  lock->take_waiting(SimpleLock::WAIT_STABLE|SimpleLock::WAIT_RD, finished);
+	  in->auth_unpin(lock);
+	}
       }
+      mds->queue_waiters(finished);
     }
     return oldin;
   }
@@ -1519,8 +1521,23 @@ CInode *MDCache::cow_inode(CInode *in, snapid_t last)
       int issued = cap->need_snapflush() ? CEPH_CAP_ANY_WR : cap->issued();
       if ((issued & CEPH_CAP_ANY_WR) &&
 	  cap->client_follows < last) {
-	dout(10) << " client." << client << " cap " << ccap_string(issued) << dendl;
-	oldin->client_snap_caps.insert(client);
+	// note in oldin
+	for (int i = 0; i < num_cinode_locks; i++) {
+	  if (issued & cinode_lock_info[i].wr_caps) {
+	    int lockid = cinode_lock_info[i].lock;
+	    SimpleLock *lock = oldin->get_lock(lockid);
+	    ceph_assert(lock);
+	    if (lock->get_state() != LOCK_SNAP_SYNC) {
+	      ceph_assert(lock->is_stable());
+	      lock->set_state(LOCK_SNAP_SYNC);  // gathering
+	      oldin->auth_pin(lock);
+	    }
+	    lock->get_wrlock(true);
+	    oldin->client_snap_caps[lockid].insert(client);
+	    dout(10) << " client." << client << " cap " << ccap_string(issued & cinode_lock_info[i].wr_caps)
+		     << " wrlock lock " << *lock << " on " << *oldin << dendl;
+	  }
+	}
 	cap->client_follows = last;
 
 	// we need snapflushes for any intervening snaps
@@ -1532,19 +1549,6 @@ CInode *MDCache::cow_inode(CInode *in, snapid_t last)
 	}
       } else {
 	dout(10) << " ignoring client." << client << " cap follows " << cap->client_follows << dendl;
-      }
-    }
-
-    if (!oldin->client_snap_caps.empty()) {
-      for (int i = 0; i < num_cinode_locks; i++) {
-	SimpleLock *lock = oldin->get_lock(cinode_lock_info[i].lock);
-	ceph_assert(lock);
-	if (lock->get_state() != LOCK_SNAP_SYNC) {
-	  ceph_assert(lock->is_stable());
-	  lock->set_state(LOCK_SNAP_SYNC);  // gathering
-	  oldin->auth_pin(lock);
-	}
-	lock->get_wrlock(true);
       }
     }
   }
@@ -5484,17 +5488,17 @@ void MDCache::rebuild_need_snapflush(CInode *head_in, SnapRealm *realm,
 
     dout(10) << " need snapflush from client." << client << " on " << *in << dendl;
 
-    if (in->client_snap_caps.empty()) {
-      for (int i = 0; i < num_cinode_locks; i++) {
-	int lockid = cinode_lock_info[i].lock;
-	SimpleLock *lock = in->get_lock(lockid);
-	ceph_assert(lock);
-	in->auth_pin(lock);
-	lock->set_state(LOCK_SNAP_SYNC);
-	lock->get_wrlock(true);
-      }
+    /* TODO: we can check the reconnected/flushing caps to find
+     *       which locks need gathering */
+    for (int i = 0; i < num_cinode_locks; i++) {
+      int lockid = cinode_lock_info[i].lock;
+      SimpleLock *lock = in->get_lock(lockid);
+      ceph_assert(lock);
+      in->client_snap_caps[lockid].insert(client);
+      in->auth_pin(lock);
+      lock->set_state(LOCK_SNAP_SYNC);
+      lock->get_wrlock(true);
     }
-    in->client_snap_caps.insert(client);
     mds->locker->mark_need_snapflush_inode(in);
   }
 }
@@ -8625,7 +8629,7 @@ void MDCache::_open_ino_backtrace_fetched(inodeno_t ino, bufferlist& bl, int err
   if (err == 0) {
     if (backtrace.ancestors.empty()) {
       dout(10) << " got empty backtrace " << dendl;
-      err = -ESTALE;
+      err = -EIO;
     } else if (!info.ancestors.empty()) {
       if (info.ancestors[0] == backtrace.ancestors[0]) {
 	dout(10) << " got same parents " << info.ancestors[0] << " 2 times" << dendl;
